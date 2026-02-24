@@ -9,3 +9,6 @@ env/
 
 __pycache__/
 *.py[cod]
+
+# macOS system files
+.DS_Store
