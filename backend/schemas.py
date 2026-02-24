@@ -76,6 +76,7 @@ class BookingRequest(BaseModel):
     event_id: int
     seat_ids: List[int]
     payment_mode: Optional[str] = "Simulated"
+    card_number: Optional[str] = "4111111111111111"
 
 
 class AuthRegisterRequest(BaseModel):

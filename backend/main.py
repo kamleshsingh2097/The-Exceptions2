@@ -1,11 +1,14 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import OperationalError, IntegrityError
 from typing import List
 import models, database, crud
 import schemas
 import auth
 from datetime import datetime
+import uuid
+from utils.payment import simulate_payment
 from database import get_db
 # Initialize Database tables
 models.Base.metadata.create_all(bind=database.engine)
@@ -115,29 +118,109 @@ def get_available_seats(event_id: int, db: Session = Depends(get_db)):
     ).all()
 
 @app.post("/orders/book", tags=["Customer"])
-def book_seats(
+def book_seats_with_payment(
     payload: schemas.BookingRequest,
     current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """Handle the booking flow and seat selection [cite: 140-141]."""
-    result, message, status_code = crud.create_booking(db, current_user.id, payload.event_id, payload.seat_ids)
-    if not result:
-        raise HTTPException(status_code=status_code, detail=message)
-    order = result["order"]
-    return {
-        "message": "Booking confirmed",
-        "order_id": order.id,
-        "order": {
-            "id": order.id,
-            "event_id": order.event_id,
-            "user_id": order.user_id,
-            "total_amount": order.total_amount,
-            "order_status": str(order.order_status),
-            "payment_mode": order.payment_mode,
-        },
-        "ticket_codes": result["ticket_codes"]
-    }
+    
+    try:
+        if not payload.seat_ids:
+            raise HTTPException(status_code=400, detail="Please select at least one seat")
+
+        event = db.query(models.Event).filter(models.Event.id == payload.event_id).first()
+        if not event:
+            raise HTTPException(status_code=404, detail="Event not found")
+        if event.status != models.EventStatus.upcoming:
+            raise HTTPException(status_code=400, detail="Booking is only allowed for upcoming events")
+        if len(payload.seat_ids) > event.max_tickets_per_user:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Exceeds limit of {event.max_tickets_per_user} tickets."
+            )
+        if len(set(payload.seat_ids)) != len(payload.seat_ids):
+            raise HTTPException(status_code=400, detail="Duplicate seat selection is not allowed.")
+
+        try:
+            locked_seats = db.query(models.Seat).filter(
+                models.Seat.id.in_(payload.seat_ids),
+                models.Seat.event_id == payload.event_id
+            ).with_for_update(nowait=True).all()
+        except OperationalError:
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="One or more seats are being booked by another user. Please try again."
+            )
+
+        locked_by_id = {s.id: s for s in locked_seats}
+        missing_ids = [sid for sid in payload.seat_ids if sid not in locked_by_id]
+        if missing_ids:
+            db.rollback()
+            raise HTTPException(
+                status_code=400,
+                detail="One or more selected seats do not exist for this event."
+            )
+
+        if any(seat.status != models.SeatStatus.available for seat in locked_seats):
+            db.rollback()
+            raise HTTPException(status_code=409, detail="One or more seats are no longer available.")
+
+        total_amount = event.ticket_price * len(payload.seat_ids)
+        payment_ok, payment_msg = simulate_payment(payload.card_number or "", total_amount)
+        if not payment_ok:
+            db.rollback()
+            raise HTTPException(status_code=402, detail=f"Payment {payment_msg}")
+
+        order = models.Order(
+            user_id=current_user.id,
+            event_id=payload.event_id,
+            total_amount=total_amount,
+            payment_mode="Simulated Card",
+            order_status=models.OrderStatus.confirmed,
+        )
+        db.add(order)
+        db.flush()
+
+        ticket_codes = []
+        for seat_id in payload.seat_ids:
+            seat = locked_by_id[seat_id]
+            seat.status = models.SeatStatus.booked
+            ticket = models.Ticket(
+                order_id=order.id,
+                seat_id=seat_id,
+                ticket_code=str(uuid.uuid4())[:8].upper(),
+                is_used=False,
+            )
+            db.add(ticket)
+            ticket_codes.append(ticket.ticket_code)
+
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            raise HTTPException(status_code=400, detail=f"Booking could not be completed: {exc.orig}")
+
+        db.refresh(order)
+
+        return {
+            "message": "Booking confirmed",
+            "order_id": order.id,
+            "order": {
+                "id": order.id,
+                "event_id": order.event_id,
+                "user_id": order.user_id,
+                "total_amount": order.total_amount,
+                "order_status": str(order.order_status),
+                "payment_mode": order.payment_mode,
+            },
+            "ticket_codes": ticket_codes,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Booking failed: {exc}")
 
 
 @app.post("/book-seat", tags=["Customer"])
