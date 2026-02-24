@@ -29,8 +29,9 @@ def generate_ticket_pdf(ticket_data: dict):
     
     pdf.set_font('Arial', '', 12)
     pdf.cell(0, 10, f"Venue: {ticket_data['venue_name']}", 0, 1)
-    pdf.cell(0, 10, f"Date: {ticket_data['event_date']}", 0, 1)
+    pdf.cell(0, 10, f"Date & Time: {ticket_data['event_date']}", 0, 1)
     pdf.cell(0, 10, f"Seat Number: {ticket_data['seat_number']}", 0, 1)
+    pdf.cell(0, 10, f"Order ID: {ticket_data.get('order_id', 'N/A')}", 0, 1)
     
     pdf.ln(10)
     

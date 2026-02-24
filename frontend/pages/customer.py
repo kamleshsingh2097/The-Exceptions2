@@ -6,11 +6,33 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import streamlit as st
 import requests
+from datetime import datetime
 from utils.pdf_gen import generate_ticket_pdf
 from utils.email_sim import simulate_email_sending
 
 # Configuration
 API_URL = "http://localhost:8000"
+
+
+def get_error_detail(response, default_message: str) -> str:
+    try:
+        data = response.json()
+        if isinstance(data, dict):
+            return data.get("detail", default_message)
+    except ValueError:
+        pass
+    text = (response.text or "").strip()
+    return text or default_message
+
+
+def format_event_datetime(value: str) -> str:
+    if not value:
+        return "N/A"
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return dt.strftime("%Y-%m-%d %I:%M %p")
+    except ValueError:
+        return value
 
 st.set_page_config(page_title="Customer Portal", layout="wide")
 st.title("🎟️ Event Discovery & Booking")
@@ -22,50 +44,9 @@ if "customer_email" not in st.session_state:
 if "customer_name" not in st.session_state:
     st.session_state.customer_name = None
 
-with st.sidebar:
-    st.header("Account")
-    if st.session_state.auth_token:
-        st.success(f"Logged in as {st.session_state.customer_email}")
-        if st.button("Logout"):
-            st.session_state.auth_token = None
-            st.session_state.customer_email = None
-            st.session_state.customer_name = None
-            st.rerun()
-    else:
-        auth_tab_login, auth_tab_register = st.tabs(["Login", "Register"])
-        with auth_tab_login:
-            login_email = st.text_input("Email", key="login_email")
-            login_password = st.text_input("Password", type="password", key="login_password")
-            if st.button("Login"):
-                login_res = requests.post(
-                    f"{API_URL}/auth/login",
-                    json={"email": login_email, "password": login_password}
-                )
-                if login_res.status_code == 200:
-                    login_data = login_res.json()
-                    st.session_state.auth_token = login_data["access_token"]
-                    st.session_state.customer_email = login_data["email"]
-                    st.session_state.customer_name = login_data["name"]
-                    st.rerun()
-                else:
-                    st.error(login_res.json().get("detail", "Login failed"))
-        with auth_tab_register:
-            reg_name = st.text_input("Name", key="reg_name")
-            reg_email = st.text_input("Email ", key="reg_email")
-            reg_password = st.text_input("Password ", type="password", key="reg_password")
-            if st.button("Create Account"):
-                reg_res = requests.post(
-                    f"{API_URL}/auth/register",
-                    json={"name": reg_name, "email": reg_email, "password": reg_password}
-                )
-                if reg_res.status_code == 200:
-                    reg_data = reg_res.json()
-                    st.session_state.auth_token = reg_data["access_token"]
-                    st.session_state.customer_email = reg_data["email"]
-                    st.session_state.customer_name = reg_data["name"]
-                    st.rerun()
-                else:
-                    st.error(reg_res.json().get("detail", "Registration failed"))
+if not st.session_state.auth_token:
+    st.warning("Please login from the Home page first.")
+    st.stop()
 
 # --- 1. Browse Upcoming Events ---
 # Displays only events with 'upcoming' status [cite: 138, 158]
@@ -78,12 +59,13 @@ try:
             st.info("No upcoming events at the moment. Check back later!")
         
         for event in events:
+            event_when = format_event_datetime(event.get("event_date"))
             with st.container(border=True):
                 col1, col2 = st.columns([3, 1])
                 
                 with col1:
                     st.subheader(event['name'])
-                    st.write(f"**Category:** {event['category']} | **Date:** {event['event_date']}")
+                    st.write(f"**Category:** {event['category']} | **Date & Time:** {event_when}")
                     st.write(f"**Venue ID:** {event['venue_id']}")
                 
                 with col2:
@@ -91,13 +73,14 @@ try:
                     if st.button(f"View Seats", key=f"view_{event['id']}"):
                         st.session_state.selected_event_id = event['id']
                         st.session_state.event_name = event['name']
-                        st.session_state.event_date = event['event_date']
+                        st.session_state.event_date = event_when
                         st.session_state.price = event['ticket_price']
 
         # --- 2. Seat Selection & Checkout ---
         if "selected_event_id" in st.session_state:
             st.divider()
             st.header(f"Booking for: {st.session_state.event_name}")
+            st.write(f"**When:** {st.session_state.event_date}")
             
             # Fetch available seats for the event [cite: 139]
             ev_id = st.session_state.selected_event_id
@@ -138,9 +121,18 @@ try:
                         
                         if book_res.status_code == 200:
                             order_data = book_res.json()
+                            order_id = None
+                            if isinstance(order_data, dict):
+                                order_id = order_data.get("order_id")
+                                if order_id is None:
+                                    order_obj = order_data.get("order", {})
+                                    if isinstance(order_obj, dict):
+                                        order_id = order_obj.get("id")
                             ticket_codes = order_data.get("ticket_codes", [])
                             primary_ticket_code = ticket_codes[0] if ticket_codes else "TICK-XXXX"
                             st.success("🎉 Booking Successful!")
+                            if order_id is not None:
+                                st.write(f"**Order ID:** {order_id}")
                             if ticket_codes:
                                 st.write("**Ticket Code(s):** " + ", ".join(ticket_codes))
                             
@@ -151,6 +143,7 @@ try:
                                 "venue_name": "Main Arena",
                                 "event_date": st.session_state.event_date,
                                 "seat_number": ", ".join(selected_labels),
+                                "order_id": order_id if order_id is not None else "N/A",
                                 "ticket_code": primary_ticket_code,
                                 "ticket_codes": ticket_codes
                             }
@@ -188,8 +181,11 @@ with st.expander("Request a Refund"):
     st.write("Note: Refunds are only allowed before the event date.")  # cite: 158
     refund_order_id = st.number_input("Enter Order ID:", min_value=1, step=1)
     if st.button("Submit Refund Request"):  # cite: 144
-        ref_res = requests.post(f"{API_URL}/orders/{refund_order_id}/refund")
+        ref_res = requests.post(
+            f"{API_URL}/orders/{refund_order_id}/refund",
+            headers={"Authorization": f"Bearer {st.session_state.auth_token}"}
+        )
         if ref_res.status_code == 200:
-            st.warning("Refund processed. Seat availability has been restored.")  # cite: 63, 161
+            st.warning("Refund processed for this Order ID. Seat availability has been restored.")  # cite: 63, 161
         else:
-            st.error(ref_res.json().get('detail'))
+            st.error(get_error_detail(ref_res, "Refund request failed"))

@@ -5,7 +5,7 @@ from typing import List
 import models, database, crud
 import schemas
 import auth
-from datetime import date
+from datetime import datetime
 from database import get_db
 # Initialize Database tables
 models.Base.metadata.create_all(bind=database.engine)
@@ -84,7 +84,7 @@ def add_event(
     venue_id: int, 
     name: str, 
     category: str, 
-    date: date, 
+    date: datetime, 
     price: float, 
     max_per_user: int, 
     db: Session = Depends(get_db)
@@ -122,16 +122,29 @@ def book_seats(
     result, message = crud.create_booking(db, current_user.id, payload.event_id, payload.seat_ids)
     if not result:
         raise HTTPException(status_code=400, detail=message)
+    order = result["order"]
     return {
         "message": "Booking confirmed",
-        "order": result["order"],
+        "order_id": order.id,
+        "order": {
+            "id": order.id,
+            "event_id": order.event_id,
+            "user_id": order.user_id,
+            "total_amount": order.total_amount,
+            "order_status": str(order.order_status),
+            "payment_mode": order.payment_mode,
+        },
         "ticket_codes": result["ticket_codes"]
     }
 
 @app.post("/orders/{order_id}/refund", tags=["Customer"])
-def request_refund(order_id: int, db: Session = Depends(get_db)):
+def request_refund(
+    order_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """Process a refund request before the event date."""
-    success, message = crud.process_refund(db, order_id)
+    success, message = crud.process_refund(db, order_id, current_user.id)
     if not success:
         raise HTTPException(status_code=400, detail=message)
     return {"message": message}

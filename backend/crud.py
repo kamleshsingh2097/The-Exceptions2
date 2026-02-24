@@ -144,20 +144,24 @@ def validate_ticket(db: Session, ticket_code: str):
 
 # --- REFUNDS & SUPPORT (Support Executive) ---
 
-def process_refund(db: Session, order_id: int):
+def process_refund(db: Session, order_id: int, user_id: int):
     """Process refund and restore seat availability[cite: 11, 63, 155]."""
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
-    event = db.query(models.Event).join(models.Seat).join(models.Ticket).filter(models.Ticket.order_id == order_id).first()
+    if not order:
+        return False, "Order not found."
+    if order.user_id != user_id:
+        return False, "You can only refund your own orders."
+    if order.order_status == "refunded":
+        return False, "Order is already refunded."
 
-from datetime import datetime, timezone
+    event = db.query(models.Event).filter(models.Event.id == order.event_id).first()
+    if not event:
+        return False, "Event not found for this order."
 
-def process_refund(event):
-    # Rule: Refund allowed only before event_date
-    if datetime.now(timezone.utc) >= event.event_date:
-        return False, "Refunds are only allowed before the event date."
+    # Rule: Refund allowed only before event_date [cite: 158]
+    if datetime.utcnow() >= event.event_date:
+        return False, "Refunds only allowed before the event date."
 
-    # continue refund logic
-    return True, "Refund processed successfully."
     # Rule: If refund approved, order status -> refunded, seat -> available [cite: 159-161]
     order.order_status = "refunded"
     tickets = db.query(models.Ticket).filter(models.Ticket.order_id == order_id).all()

@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+from datetime import datetime
 
 API_URL = "http://localhost:8000"
 
@@ -28,6 +29,7 @@ with tab1:
         e_name = st.text_input("Event Name")
         e_cat = st.selectbox("Category", ["Concert", "Workshop", "Sports"])
         e_date = st.date_input("Event Date")
+        e_time = st.time_input("Event Time")
         e_price = st.number_input("Ticket Price", min_value=0.0)
         e_limit = st.number_input("Max Tickets Per User", min_value=1, value=5)
         
@@ -37,7 +39,7 @@ with tab1:
                 "venue_id": int(v_id),
                 "name": e_name,
                 "category": e_cat,
-                "date": e_date.isoformat(),
+                "date": datetime.combine(e_date, e_time).isoformat(),
                 "price": float(e_price),
                 "max_per_user": int(e_limit)
             })

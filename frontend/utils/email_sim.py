@@ -19,7 +19,7 @@ def simulate_email_sending(customer_email: str, ticket_data: dict):
         
         Your booking for {ticket_data['event_name']} is confirmed!
         Venue: {ticket_data['venue_name']}
-        Date: {ticket_data['event_date']}
+        Date & Time: {ticket_data['event_date']}
         Seat: {ticket_data['seat_number']}
         Ticket Code: {ticket_data['ticket_code']}
         
