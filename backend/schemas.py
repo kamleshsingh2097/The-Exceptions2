@@ -73,10 +73,28 @@ class UserResponse(BaseModel):
 
 #Order
 class BookingRequest(BaseModel):
-    user_id: int
     event_id: int
     seat_ids: List[int]
-    payment_mode: str
+    payment_mode: Optional[str] = "Simulated"
+
+
+class AuthRegisterRequest(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+
+
+class AuthLoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class AuthTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user_id: int
+    name: str
+    email: EmailStr
 
 class OrderResponse(BaseModel):
     id: int

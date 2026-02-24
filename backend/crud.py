@@ -73,6 +73,10 @@ def create_event(
 
 def create_booking(db: Session, user_id: int, event_id: int, seat_ids: list):
     """Handle ticket booking and seat selection[cite: 9, 140, 141]."""
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        return None, f"User with id {user_id} does not exist."
+
     event = db.query(models.Event).filter(models.Event.id == event_id).first()
     
     # Rule: Booking allowed only for upcoming events [cite: 158]
@@ -82,17 +86,28 @@ def create_booking(db: Session, user_id: int, event_id: int, seat_ids: list):
     # Rule: Users cannot exceed ticket limit per event [cite: 62]
     if len(seat_ids) > event.max_tickets_per_user:
         return None, f"Exceeds limit of {event.max_tickets_per_user} tickets."
+    if not seat_ids:
+        return None, "Please select at least one seat."
 
     # Create the Order [cite: 98]
     order = models.Order(
         user_id=user_id, total_amount=event.ticket_price * len(seat_ids),
-        order_status="confirmed", payment_mode="Simulated"
+        order_status="confirmed", payment_mode="Simulated", event_id=event_id
     )
     db.add(order)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        return None, f"Booking could not be created: {exc.orig}"
 
+    ticket_codes = []
     for s_id in seat_ids:
-        seat = db.query(models.Seat).filter(models.Seat.id == s_id, models.Seat.status == "available").first()
+        seat = db.query(models.Seat).filter(
+            models.Seat.id == s_id,
+            models.Seat.event_id == event_id,
+            models.Seat.status == "available"
+        ).first()
         if not seat:
             db.rollback()
             return None, "One or more seats are no longer available."
@@ -104,9 +119,14 @@ def create_booking(db: Session, user_id: int, event_id: int, seat_ids: list):
             ticket_code=str(uuid.uuid4())[:8].upper()
         )
         db.add(ticket)
+        ticket_codes.append(ticket.ticket_code)
 
-    db.commit()
-    return order, "Success"
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        return None, f"Booking could not be completed due to data integrity rules: {exc.orig}"
+    return {"order": order, "ticket_codes": ticket_codes}, "Success"
 
 # --- VALIDATION & ENTRY (Entry Manager) ---
 
@@ -129,10 +149,15 @@ def process_refund(db: Session, order_id: int):
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
     event = db.query(models.Event).join(models.Seat).join(models.Ticket).filter(models.Ticket.order_id == order_id).first()
 
-    # Rule: Refund allowed only before event_date [cite: 158]
-    if datetime.utcnow() >= event.event_date:
-        return False, "Refunds only allowed before the event date."
+from datetime import datetime, timezone
 
+def process_refund(event):
+    # Rule: Refund allowed only before event_date
+    if datetime.now(timezone.utc) >= event.event_date:
+        return False, "Refunds are only allowed before the event date."
+
+    # continue refund logic
+    return True, "Refund processed successfully."
     # Rule: If refund approved, order status -> refunded, seat -> available [cite: 159-161]
     order.order_status = "refunded"
     tickets = db.query(models.Ticket).filter(models.Ticket.order_id == order_id).all()

@@ -1,13 +1,75 @@
 from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from typing import List
 import models, database, crud
+import schemas
+import auth
 from datetime import date
 from database import get_db
 # Initialize Database tables
 models.Base.metadata.create_all(bind=database.engine)
 
 app = FastAPI(title="Online Event Ticket Booking Platform API")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    payload = auth.decode_access_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    user_id = payload.get("user_id")
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
+
+
+# --- AUTH ENDPOINTS ---
+
+@app.post("/auth/register", response_model=schemas.AuthTokenResponse, tags=["Auth"])
+def register(payload: schemas.AuthRegisterRequest, db: Session = Depends(get_db)):
+    existing = db.query(models.User).filter(models.User.email == payload.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    user = models.User(
+        name=payload.name,
+        email=payload.email,
+        password=auth.hash_password(payload.password),
+        role=models.UserRole.customer
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    token = auth.create_access_token({"user_id": user.id, "email": user.email})
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user_id": user.id,
+        "name": user.name,
+        "email": user.email
+    }
+
+
+@app.post("/auth/login", response_model=schemas.AuthTokenResponse, tags=["Auth"])
+def login(payload: schemas.AuthLoginRequest, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.email == payload.email).first()
+    if not user or not auth.verify_password(payload.password, user.password):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    token = auth.create_access_token({"user_id": user.id, "email": user.email})
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user_id": user.id,
+        "name": user.name,
+        "email": user.email
+    }
 
 
 # --- PLATFORM ADMIN / ORGANIZER ENDPOINTS ---
@@ -51,12 +113,20 @@ def get_available_seats(event_id: int, db: Session = Depends(get_db)):
     ).all()
 
 @app.post("/orders/book", tags=["Customer"])
-def book_seats(user_id: int, event_id: int, seat_ids: List[int], db: Session = Depends(get_db)):
+def book_seats(
+    payload: schemas.BookingRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """Handle the booking flow and seat selection [cite: 140-141]."""
-    order, message = crud.create_booking(db, user_id, event_id, seat_ids)
-    if not order:
+    result, message = crud.create_booking(db, current_user.id, payload.event_id, payload.seat_ids)
+    if not result:
         raise HTTPException(status_code=400, detail=message)
-    return {"message": "Booking confirmed", "order": order}
+    return {
+        "message": "Booking confirmed",
+        "order": result["order"],
+        "ticket_codes": result["ticket_codes"]
+    }
 
 @app.post("/orders/{order_id}/refund", tags=["Customer"])
 def request_refund(order_id: int, db: Session = Depends(get_db)):

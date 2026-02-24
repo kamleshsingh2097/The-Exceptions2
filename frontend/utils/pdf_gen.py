@@ -34,11 +34,21 @@ def generate_ticket_pdf(ticket_data: dict):
     
     pdf.ln(10)
     
-    # Unique Ticket Code Section 
+    # Unique Ticket Code Section
+    ticket_codes = ticket_data.get("ticket_codes")
+    if not ticket_codes:
+        ticket_codes = [ticket_data.get("ticket_code", "TICK-XXXX")]
+
     pdf.set_fill_color(230, 230, 230)
     pdf.set_font('Arial', 'B', 14)
-    pdf.cell(0, 15, f"TICKET CODE: {ticket_data['ticket_code']}", 0, 1, 'C', fill=True)
-    
+    if len(ticket_codes) == 1:
+        pdf.cell(0, 15, f"TICKET CODE: {ticket_codes[0]}", 0, 1, 'C', fill=True)
+    else:
+        pdf.cell(0, 12, "TICKET CODES", 0, 1, 'C', fill=True)
+        pdf.set_font('Arial', 'B', 12)
+        for code in ticket_codes:
+            pdf.cell(0, 9, code, 0, 1, 'C')
+
     pdf.ln(10)
     
     # Instructions for Entry Manager [cite: 146-151]

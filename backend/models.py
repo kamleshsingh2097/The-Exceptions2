@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Float, Enum
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Float, Enum, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -78,6 +78,7 @@ class Seat(Base):
 
     venue = relationship("Venue", back_populates="seats")
     event = relationship("Event", back_populates="seats")
+    tickets = relationship("Ticket", back_populates="seat")
 
 
 class User(Base):
@@ -106,3 +107,18 @@ class Order(Base):
 
     user = relationship("User", back_populates="orders")
     event = relationship("Event", back_populates="orders")
+    tickets = relationship("Ticket", back_populates="order")
+
+
+class Ticket(Base):
+    __tablename__ = "tickets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ticket_code = Column(String, unique=True, nullable=False, index=True)
+    is_used = Column(Boolean, default=False, nullable=False)
+
+    order_id = Column(Integer, ForeignKey("orders.id"), nullable=False)
+    seat_id = Column(Integer, ForeignKey("seats.id"), nullable=False)
+
+    order = relationship("Order", back_populates="tickets")
+    seat = relationship("Seat", back_populates="tickets")

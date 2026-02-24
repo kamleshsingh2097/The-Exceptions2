@@ -15,6 +15,58 @@ API_URL = "http://localhost:8000"
 st.set_page_config(page_title="Customer Portal", layout="wide")
 st.title("🎟️ Event Discovery & Booking")
 
+if "auth_token" not in st.session_state:
+    st.session_state.auth_token = None
+if "customer_email" not in st.session_state:
+    st.session_state.customer_email = None
+if "customer_name" not in st.session_state:
+    st.session_state.customer_name = None
+
+with st.sidebar:
+    st.header("Account")
+    if st.session_state.auth_token:
+        st.success(f"Logged in as {st.session_state.customer_email}")
+        if st.button("Logout"):
+            st.session_state.auth_token = None
+            st.session_state.customer_email = None
+            st.session_state.customer_name = None
+            st.rerun()
+    else:
+        auth_tab_login, auth_tab_register = st.tabs(["Login", "Register"])
+        with auth_tab_login:
+            login_email = st.text_input("Email", key="login_email")
+            login_password = st.text_input("Password", type="password", key="login_password")
+            if st.button("Login"):
+                login_res = requests.post(
+                    f"{API_URL}/auth/login",
+                    json={"email": login_email, "password": login_password}
+                )
+                if login_res.status_code == 200:
+                    login_data = login_res.json()
+                    st.session_state.auth_token = login_data["access_token"]
+                    st.session_state.customer_email = login_data["email"]
+                    st.session_state.customer_name = login_data["name"]
+                    st.rerun()
+                else:
+                    st.error(login_res.json().get("detail", "Login failed"))
+        with auth_tab_register:
+            reg_name = st.text_input("Name", key="reg_name")
+            reg_email = st.text_input("Email ", key="reg_email")
+            reg_password = st.text_input("Password ", type="password", key="reg_password")
+            if st.button("Create Account"):
+                reg_res = requests.post(
+                    f"{API_URL}/auth/register",
+                    json={"name": reg_name, "email": reg_email, "password": reg_password}
+                )
+                if reg_res.status_code == 200:
+                    reg_data = reg_res.json()
+                    st.session_state.auth_token = reg_data["access_token"]
+                    st.session_state.customer_email = reg_data["email"]
+                    st.session_state.customer_name = reg_data["name"]
+                    st.rerun()
+                else:
+                    st.error(reg_res.json().get("detail", "Registration failed"))
+
 # --- 1. Browse Upcoming Events ---
 # Displays only events with 'upcoming' status [cite: 138, 158]
 try:
@@ -70,29 +122,44 @@ try:
                         
                         # API call to process booking [cite: 28]
                         booking_payload = {
-                            "user_id": 1, # Simulated logged-in user ID
                             "event_id": ev_id,
                             "seat_ids": seat_ids
                         }
-                        
-                        book_res = requests.post(f"{API_URL}/orders/book", json=booking_payload)
+
+                        if not st.session_state.auth_token:
+                            st.error("Please login first to place an order.")
+                            st.stop()
+
+                        book_res = requests.post(
+                            f"{API_URL}/orders/book",
+                            json=booking_payload,
+                            headers={"Authorization": f"Bearer {st.session_state.auth_token}"}
+                        )
                         
                         if book_res.status_code == 200:
                             order_data = book_res.json()
+                            ticket_codes = order_data.get("ticket_codes", [])
+                            primary_ticket_code = ticket_codes[0] if ticket_codes else "TICK-XXXX"
                             st.success("🎉 Booking Successful!")
+                            if ticket_codes:
+                                st.write("**Ticket Code(s):** " + ", ".join(ticket_codes))
                             
                             # Trigger Optional Extensions [cite: 198]
                             ticket_info = {
-                                "customer_name": "Valued Customer",
+                                "customer_name": st.session_state.customer_name or "Valued Customer",
                                 "event_name": st.session_state.event_name,
                                 "venue_name": "Main Arena",
                                 "event_date": st.session_state.event_date,
                                 "seat_number": ", ".join(selected_labels),
-                                "ticket_code": order_data.get("ticket_code", "TICK-XXXX")
+                                "ticket_code": primary_ticket_code,
+                                "ticket_codes": ticket_codes
                             }
                             
                             # Extension: Email Simulation [cite: 203]
-                            simulate_email_sending("customer@example.com", ticket_info)
+                            simulate_email_sending(
+                                st.session_state.customer_email or "customer@example.com",
+                                ticket_info
+                            )
                             
                             # Extension: PDF Generation [cite: 202]
                             pdf_bytes = generate_ticket_pdf(ticket_info)
@@ -103,7 +170,12 @@ try:
                                 mime="application/pdf"
                             )
                         else:
-                            st.error(f"Booking failed: {book_res.json().get('detail')}")
+                            detail = "Unknown booking error"
+                            try:
+                                detail = book_res.json().get("detail", detail)
+                            except Exception:
+                                pass
+                            st.error(f"Booking failed: {detail}")
             else:
                 st.error("Could not load seat map.")
 
