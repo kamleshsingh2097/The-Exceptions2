@@ -1,3 +1,9 @@
+import sys
+import os
+
+# ensure parent folder (frontend) is on the import path so `utils` can be resolved
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import streamlit as st
 import requests
 from utils.pdf_gen import generate_ticket_pdf

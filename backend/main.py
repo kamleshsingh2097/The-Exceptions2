@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 import models, database, crud
-from datetime import datetime
+from datetime import date
 from database import get_db
 # Initialize Database tables
 models.Base.metadata.create_all(bind=database.engine)
@@ -22,7 +22,7 @@ def add_event(
     venue_id: int, 
     name: str, 
     category: str, 
-    date: datetime, 
+    date: date, 
     price: float, 
     max_per_user: int, 
     db: Session = Depends(get_db)

@@ -15,8 +15,11 @@ with tab1:
         v_city = st.text_input("City")
         v_cap = st.number_input("Total Capacity", min_value=1)
         if st.button("Register Venue"):
-            requests.post(f"{API_URL}/admin/venues/", params={"name": v_name, "city": v_city, "capacity": v_cap})
-            st.success("Venue Registered!")
+            resp = requests.post(f"{API_URL}/admin/venues/", params={"name": v_name, "city": v_city, "capacity": v_cap})
+            if resp.status_code == 200 or resp.status_code == 201:
+                st.success("Venue Registered!")
+            else:
+                st.error(f"Venue creation failed ({resp.status_code}): {resp.text}")
 
     # Event Creation [cite: 123]
     with st.form("event_creation"):
@@ -30,15 +33,47 @@ with tab1:
         
         if st.form_submit_button("Launch Event"):
             # This triggers auto-generation of seats in the backend [cite: 126]
-            requests.post(f"{API_URL}/admin/events/", params={
-                "venue_id": v_id, "name": e_name, "category": e_cat, 
-                "date": str(e_date), "price": e_price, "max_per_user": e_limit
+            resp = requests.post(f"{API_URL}/admin/events/", params={
+                "venue_id": int(v_id),
+                "name": e_name,
+                "category": e_cat,
+                "date": e_date.isoformat(),
+                "price": float(e_price),
+                "max_per_user": int(e_limit)
             })
-            st.success(f"Event {e_name} is now LIVE.")
+            if resp.status_code == 200 or resp.status_code == 201:
+                st.success(f"Event {e_name} is now LIVE.")
+            else:
+                st.error(f"Event creation failed ({resp.status_code}): {resp.text}")
 
 with tab2:
     st.subheader("System Performance")
-    stats = requests.get(f"{API_URL}/admin/analytics").json()
+    try:
+        resp = requests.get(f"{API_URL}/admin/analytics")
+        if resp.status_code == 200:
+            stats = resp.json()
+        else:
+            st.warning(f"Analytics endpoint returned status {resp.status_code}")
+            stats = {}
+    except requests.exceptions.RequestException as exc:
+        st.error(f"Failed to fetch analytics: {exc}")
+        stats = {}
+    except ValueError:
+        st.error("Analytics endpoint did not return valid JSON.")
+        stats = {}
+
     col1, col2 = st.columns(2)
-    col1.metric("Total Tickets Sold", stats.get("total_tickets_sold", 0)) # [cite: 201]
+    col1.metric("Total Tickets Sold", stats.get("total_tickets_sold", 0))  # [cite: 201]
     col2.metric("Gross Revenue", f"${stats.get('total_revenue', 0)}")
+
+    # debug: show upcoming events available right now
+    st.markdown("---")
+    st.write("### Upcoming Events (debug)")
+    try:
+        evt_resp = requests.get(f"{API_URL}/events/upcoming")
+        if evt_resp.status_code == 200:
+            st.json(evt_resp.json())
+        else:
+            st.write(f"could not fetch events: {evt_resp.status_code}")
+    except Exception as e:
+        st.write(f"error fetching events: {e}")

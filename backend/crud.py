@@ -1,5 +1,7 @@
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, date as date_type, time
+from sqlalchemy.exc import IntegrityError
+from fastapi import HTTPException
 import models
 import uuid
 
@@ -7,29 +9,64 @@ import uuid
 
 def create_venue(db: Session, name: str, city: str, capacity: int):
     """Register a new venue[cite: 122]."""
-    db_venue = models.Venue(name=name, city=city, total_capacity=capacity)
+    # UI does not currently collect address; keep insert compatible with existing model.
+    db_venue = models.Venue(
+        name=name,
+        city=city,
+        total_capacity=capacity,
+        address=f"{city} (unspecified address)"
+    )
     db.add(db_venue)
     db.commit()
     db.refresh(db_venue)
     return db_venue
 
-def create_event(db: Session, venue_id: int, name: str, category: str, date: datetime, price: float, max_per_user: int):
+def create_event(
+    db: Session,
+    venue_id: int,
+    name: str,
+    category: str,
+    date: datetime | date_type,
+    price: float,
+    max_per_user: int,
+):
     """Onboard an event and auto-generate seats[cite: 7, 123, 126]."""
+    # verify that referenced venue exists
+    venue = db.query(models.Venue).filter(models.Venue.id == venue_id).first()
+    if not venue:
+        # client provided invalid venue id
+        raise HTTPException(status_code=404, detail="venue not found")
+
+    event_date = (
+        datetime.combine(date, time.min)
+        if isinstance(date, date_type) and not isinstance(date, datetime)
+        else date
+    )
+
     db_event = models.Event(
         venue_id=venue_id, name=name, category=category, 
-        event_date=date, ticket_price=price, 
+        event_date=event_date, ticket_price=price, 
         max_tickets_per_user=max_per_user, status="upcoming"
     )
     db.add(db_event)
-    db.flush() # Get event ID to link seats
+    db.flush()  # Get event ID to link seats
 
     # Seat inventory management: create seats based on venue capacity [cite: 8]
-    venue = db.query(models.Venue).filter(models.Venue.id == venue_id).first()
     for i in range(1, venue.total_capacity + 1):
-        seat = models.Seat(event_id=db_event.id, seat_number=f"S{i}", status="available")
+        seat = models.Seat(
+            event_id=db_event.id,
+            venue_id=venue_id,
+            seat_number=f"S{i}",
+            status="available"
+        )
         db.add(seat)
-    
-    db.commit()
+
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Could not create event: {exc.orig}")
+    db.refresh(db_event)
     return db_event
 
 # --- BOOKING LIFECYCLE (Customer) ---
