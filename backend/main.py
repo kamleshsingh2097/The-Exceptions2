@@ -40,7 +40,7 @@ def register(payload: schemas.AuthRegisterRequest, db: Session = Depends(get_db)
         name=payload.name,
         email=payload.email,
         password=auth.hash_password(payload.password),
-        role=models.UserRole.customer
+        role=payload.role
     )
     db.add(user)
     db.commit()
@@ -52,7 +52,8 @@ def register(payload: schemas.AuthRegisterRequest, db: Session = Depends(get_db)
         "token_type": "bearer",
         "user_id": user.id,
         "name": user.name,
-        "email": user.email
+        "email": user.email,
+        "role": user.role
     }
 
 
@@ -68,7 +69,8 @@ def login(payload: schemas.AuthLoginRequest, db: Session = Depends(get_db)):
         "token_type": "bearer",
         "user_id": user.id,
         "name": user.name,
-        "email": user.email
+        "email": user.email,
+        "role": user.role
     }
 
 
@@ -119,9 +121,9 @@ def book_seats(
     db: Session = Depends(get_db)
 ):
     """Handle the booking flow and seat selection [cite: 140-141]."""
-    result, message = crud.create_booking(db, current_user.id, payload.event_id, payload.seat_ids)
+    result, message, status_code = crud.create_booking(db, current_user.id, payload.event_id, payload.seat_ids)
     if not result:
-        raise HTTPException(status_code=400, detail=message)
+        raise HTTPException(status_code=status_code, detail=message)
     order = result["order"]
     return {
         "message": "Booking confirmed",
@@ -137,14 +139,33 @@ def book_seats(
         "ticket_codes": result["ticket_codes"]
     }
 
+
+@app.post("/book-seat", tags=["Customer"])
+def book_single_seat(
+    event_id: int,
+    seat_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Book a single seat with pessimistic row locking."""
+    result, message, status_code = crud.create_booking(db, current_user.id, event_id, [seat_id])
+    if not result:
+        raise HTTPException(status_code=status_code, detail=message)
+    return {
+        "status": "success",
+        "order_id": result["order"].id,
+        "ticket_code": result["ticket_codes"][0] if result["ticket_codes"] else None
+    }
+
 @app.post("/orders/{order_id}/refund", tags=["Customer"])
 def request_refund(
     order_id: int,
+    review_note: str | None = None,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Process a refund request before the event date."""
-    success, message = crud.process_refund(db, order_id, current_user.id)
+    success, message = crud.process_refund(db, order_id, current_user.id, review_note)
     if not success:
         raise HTTPException(status_code=400, detail=message)
     return {"message": message}
@@ -165,3 +186,9 @@ def validate_ticket(ticket_code: str, db: Session = Depends(get_db)):
 def get_platform_analytics(db: Session = Depends(get_db)):
     """Extension: View total tickets sold and revenue[cite: 201]."""
     return crud.get_analytics(db)
+
+
+@app.get("/support/refund-requests", tags=["Support/Analytics"])
+def get_refund_requests(db: Session = Depends(get_db)):
+    """View customer refund requests with review notes and resolution status."""
+    return crud.list_support_requests(db)

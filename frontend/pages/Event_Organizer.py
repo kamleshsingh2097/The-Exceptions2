@@ -4,7 +4,19 @@ from datetime import datetime
 
 API_URL = "http://localhost:8000"
 
-st.title("🛡️ Platform Admin Dashboard")
+st.title("🛡️ Event Organizer Dashboard")
+
+if "auth_token" not in st.session_state:
+    st.session_state.auth_token = None
+if "user_role" not in st.session_state:
+    st.session_state.user_role = None
+
+if not st.session_state.auth_token:
+    st.warning("Please login from the Home page first.")
+    st.stop()
+if st.session_state.get("user_role") != "organizer":
+    st.error("Access denied. This page is only for Event Organizer role.")
+    st.stop()
 
 tab1, tab2 = st.tabs(["Manage Events", "Analytics"])
 

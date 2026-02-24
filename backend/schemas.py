@@ -82,6 +82,7 @@ class AuthRegisterRequest(BaseModel):
     name: str
     email: EmailStr
     password: str
+    role: models.UserRole = models.UserRole.customer
 
 
 class AuthLoginRequest(BaseModel):
@@ -95,6 +96,7 @@ class AuthTokenResponse(BaseModel):
     user_id: int
     name: str
     email: EmailStr
+    role: models.UserRole
 
 class OrderResponse(BaseModel):
     id: int

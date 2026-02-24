@@ -47,6 +47,9 @@ if "customer_name" not in st.session_state:
 if not st.session_state.auth_token:
     st.warning("Please login from the Home page first.")
     st.stop()
+if st.session_state.get("user_role") != "customer":
+    st.error("Access denied. This page is only for Customer role.")
+    st.stop()
 
 # --- 1. Browse Upcoming Events ---
 # Displays only events with 'upcoming' status [cite: 138, 158]
@@ -163,6 +166,9 @@ try:
                                 mime="application/pdf"
                             )
                         else:
+                            if book_res.status_code == 409:
+                                st.error("⚠️ Too slow! Someone else just booked one of those seats. Please choose again.")
+                                st.rerun()
                             detail = "Unknown booking error"
                             try:
                                 detail = book_res.json().get("detail", detail)
@@ -180,12 +186,19 @@ st.divider()
 with st.expander("Request a Refund"):
     st.write("Note: Refunds are only allowed before the event date.")  # cite: 158
     refund_order_id = st.number_input("Enter Order ID:", min_value=1, step=1)
+    refund_review = st.text_area("Refund Review / Reason (optional)")
     if st.button("Submit Refund Request"):  # cite: 144
         ref_res = requests.post(
             f"{API_URL}/orders/{refund_order_id}/refund",
+            params={"review_note": refund_review},
             headers={"Authorization": f"Bearer {st.session_state.auth_token}"}
         )
         if ref_res.status_code == 200:
-            st.warning("Refund processed for this Order ID. Seat availability has been restored.")  # cite: 63, 161
+            msg = "Refund processed for this Order ID. Seat availability has been restored."
+            try:
+                msg = ref_res.json().get("message", msg)
+            except Exception:
+                pass
+            st.warning(msg)  # cite: 63, 161
         else:
             st.error(get_error_detail(ref_res, "Refund request failed"))

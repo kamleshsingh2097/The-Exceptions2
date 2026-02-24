@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from datetime import datetime, date as date_type, time
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from fastapi import HTTPException
 import models
 import uuid
@@ -75,19 +75,42 @@ def create_booking(db: Session, user_id: int, event_id: int, seat_ids: list):
     """Handle ticket booking and seat selection[cite: 9, 140, 141]."""
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
-        return None, f"User with id {user_id} does not exist."
+        return None, f"User with id {user_id} does not exist.", 400
 
     event = db.query(models.Event).filter(models.Event.id == event_id).first()
     
     # Rule: Booking allowed only for upcoming events [cite: 158]
     if not event or event.status != "upcoming":
-        return None, "Booking is only allowed for upcoming events."
+        return None, "Booking is only allowed for upcoming events.", 400
 
     # Rule: Users cannot exceed ticket limit per event [cite: 62]
     if len(seat_ids) > event.max_tickets_per_user:
-        return None, f"Exceeds limit of {event.max_tickets_per_user} tickets."
+        return None, f"Exceeds limit of {event.max_tickets_per_user} tickets.", 400
     if not seat_ids:
-        return None, "Please select at least one seat."
+        return None, "Please select at least one seat.", 400
+    if len(set(seat_ids)) != len(seat_ids):
+        return None, "Duplicate seat selection is not allowed.", 400
+
+    # Lock the chosen seats pessimistically so concurrent checkouts cannot race.
+    try:
+        locked_seats = db.query(models.Seat).filter(
+            models.Seat.id.in_(seat_ids),
+            models.Seat.event_id == event_id
+        ).with_for_update(nowait=True).all()
+    except OperationalError:
+        db.rollback()
+        return None, "One or more seats are being booked by another user. Please try again.", 409
+
+    locked_by_id = {s.id: s for s in locked_seats}
+    missing_ids = [sid for sid in seat_ids if sid not in locked_by_id]
+    if missing_ids:
+        db.rollback()
+        return None, "One or more selected seats do not exist for this event.", 400
+
+    unavailable = [s for s in locked_seats if s.status != "available"]
+    if unavailable:
+        db.rollback()
+        return None, "One or more seats are no longer available.", 409
 
     # Create the Order [cite: 98]
     order = models.Order(
@@ -99,23 +122,16 @@ def create_booking(db: Session, user_id: int, event_id: int, seat_ids: list):
         db.flush()
     except IntegrityError as exc:
         db.rollback()
-        return None, f"Booking could not be created: {exc.orig}"
+        return None, f"Booking could not be created: {exc.orig}", 400
 
     ticket_codes = []
-    for s_id in seat_ids:
-        seat = db.query(models.Seat).filter(
-            models.Seat.id == s_id,
-            models.Seat.event_id == event_id,
-            models.Seat.status == "available"
-        ).first()
-        if not seat:
-            db.rollback()
-            return None, "One or more seats are no longer available."
+    for seat_id in seat_ids:
+        seat = locked_by_id[seat_id]
         
         # State Change: available -> booked [cite: 89]
         seat.status = "booked"
         ticket = models.Ticket(
-            order_id=order.id, seat_id=s_id, 
+            order_id=order.id, seat_id=seat_id, 
             ticket_code=str(uuid.uuid4())[:8].upper()
         )
         db.add(ticket)
@@ -125,8 +141,8 @@ def create_booking(db: Session, user_id: int, event_id: int, seat_ids: list):
         db.commit()
     except IntegrityError as exc:
         db.rollback()
-        return None, f"Booking could not be completed due to data integrity rules: {exc.orig}"
-    return {"order": order, "ticket_codes": ticket_codes}, "Success"
+        return None, f"Booking could not be completed due to data integrity rules: {exc.orig}", 400
+    return {"order": order, "ticket_codes": ticket_codes}, "Success", 200
 
 # --- VALIDATION & ENTRY (Entry Manager) ---
 
@@ -144,22 +160,45 @@ def validate_ticket(db: Session, ticket_code: str):
 
 # --- REFUNDS & SUPPORT (Support Executive) ---
 
-def process_refund(db: Session, order_id: int, user_id: int):
+def process_refund(db: Session, order_id: int, user_id: int, review_note: str | None = None):
     """Process refund and restore seat availability[cite: 11, 63, 155]."""
+    support_request = models.SupportRequest(
+        order_id=order_id,
+        user_id=user_id,
+        review_note=review_note
+    )
+    db.add(support_request)
+    db.flush()
+
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
     if not order:
+        support_request.status = models.SupportRequestStatus.rejected
+        support_request.resolution_note = "Order not found."
+        db.commit()
         return False, "Order not found."
     if order.user_id != user_id:
+        support_request.status = models.SupportRequestStatus.rejected
+        support_request.resolution_note = "Order belongs to another user."
+        db.commit()
         return False, "You can only refund your own orders."
     if order.order_status == "refunded":
+        support_request.status = models.SupportRequestStatus.rejected
+        support_request.resolution_note = "Order already refunded."
+        db.commit()
         return False, "Order is already refunded."
 
     event = db.query(models.Event).filter(models.Event.id == order.event_id).first()
     if not event:
+        support_request.status = models.SupportRequestStatus.rejected
+        support_request.resolution_note = "Event not found for order."
+        db.commit()
         return False, "Event not found for this order."
 
     # Rule: Refund allowed only before event_date [cite: 158]
     if datetime.utcnow() >= event.event_date:
+        support_request.status = models.SupportRequestStatus.rejected
+        support_request.resolution_note = "Refund requested after event start time."
+        db.commit()
         return False, "Refunds only allowed before the event date."
 
     # Rule: If refund approved, order status -> refunded, seat -> available [cite: 159-161]
@@ -170,9 +209,29 @@ def process_refund(db: Session, order_id: int, user_id: int):
         seat = db.query(models.Seat).filter(models.Seat.id == t.seat_id).first()
         seat.status = "available" # Restore seat availability 
         t.is_used = True # Effectively cancels the ticket [cite: 162]
-    
+
+    support_request.status = models.SupportRequestStatus.processed
+    support_request.resolution_note = "Refund processed successfully."
     db.commit()
+    if review_note and review_note.strip():
+        return True, "Refund processed. Your review has been recorded."
     return True, "Refund processed."
+
+
+def list_support_requests(db: Session):
+    requests = db.query(models.SupportRequest).order_by(models.SupportRequest.created_at.desc()).all()
+    result = []
+    for req in requests:
+        result.append({
+            "id": req.id,
+            "order_id": req.order_id,
+            "user_id": req.user_id,
+            "review_note": req.review_note or "",
+            "status": str(req.status),
+            "resolution_note": req.resolution_note or "",
+            "created_at": req.created_at.isoformat() if req.created_at else None
+        })
+    return result
 
 # --- ANALYTICS (Extension) ---
 

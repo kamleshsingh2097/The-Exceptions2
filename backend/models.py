@@ -33,6 +33,12 @@ class OrderStatus(str, enum.Enum):
     refunded = "refunded"
 
 
+class SupportRequestStatus(str, enum.Enum):
+    pending = "pending"
+    processed = "processed"
+    rejected = "rejected"
+
+
 # ---------------- MODELS ---------------- #
 
 class Venue(Base):
@@ -91,6 +97,7 @@ class User(Base):
     role = Column(Enum(UserRole), default=UserRole.customer)
 
     orders = relationship("Order", back_populates="user")
+    support_requests = relationship("SupportRequest", back_populates="user")
 
 
 class Order(Base):
@@ -108,6 +115,7 @@ class Order(Base):
     user = relationship("User", back_populates="orders")
     event = relationship("Event", back_populates="orders")
     tickets = relationship("Ticket", back_populates="order")
+    support_requests = relationship("SupportRequest", back_populates="order")
 
 
 class Ticket(Base):
@@ -122,3 +130,18 @@ class Ticket(Base):
 
     order = relationship("Order", back_populates="tickets")
     seat = relationship("Seat", back_populates="tickets")
+
+
+class SupportRequest(Base):
+    __tablename__ = "support_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    review_note = Column(String, nullable=True)
+    status = Column(Enum(SupportRequestStatus), default=SupportRequestStatus.pending, nullable=False)
+    resolution_note = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="support_requests")
+    order = relationship("Order", back_populates="support_requests")

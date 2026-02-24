@@ -4,7 +4,12 @@ from sqlalchemy.orm import sessionmaker
 
 DATABASE_URL='postgresql://event_zyfw_user:D1e2bhMQayVQniMxkffXdkP3bS0mdInB@dpg-d6el5f3uibrs73dfco5g-a.oregon-postgres.render.com/event_zyfw'
 
-engine=create_engine(DATABASE_URL)
+engine_kwargs = {}
+if DATABASE_URL.startswith("postgresql"):
+    # Fail fast on lock waits to avoid hanging concurrent bookings.
+    engine_kwargs["connect_args"] = {"options": "-c lock_timeout=5000"}
+
+engine=create_engine(DATABASE_URL, **engine_kwargs)
 
 SessionLocal=sessionmaker(autocommit=False,autoflush=False,bind=engine)
 
@@ -16,4 +21,3 @@ def get_db():
         yield db
     finally:
         db.close()
-
