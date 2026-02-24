@@ -3,6 +3,15 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError, IntegrityError
 from typing import List
+import os
+import sys
+
+# Ensure local backend modules are importable whether uvicorn is started from
+# project root (`backend.main:app`) or inside `backend/` (`main:app`).
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+if BACKEND_DIR not in sys.path:
+    sys.path.insert(0, BACKEND_DIR)
+
 import models, database, crud
 import schemas
 import auth

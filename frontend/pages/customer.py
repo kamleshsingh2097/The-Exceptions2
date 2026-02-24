@@ -12,6 +12,7 @@ from utils.email_sim import simulate_email_sending
 
 # Configuration
 API_URL = "http://localhost:8000"
+REQUEST_TIMEOUT = 10
 
 
 def get_error_detail(response, default_message: str) -> str:
@@ -55,7 +56,7 @@ if st.session_state.get("user_role") != "customer":
 # --- 1. Browse Upcoming Events ---
 # Displays only events with 'upcoming' status [cite: 138, 158]
 try:
-    response = requests.get(f"{API_URL}/events/upcoming")
+    response = requests.get(f"{API_URL}/events/upcoming", timeout=REQUEST_TIMEOUT)
     if response.status_code == 200:
         events = response.json()
         
@@ -88,7 +89,7 @@ try:
             
             # Fetch available seats for the event [cite: 139]
             ev_id = st.session_state.selected_event_id
-            seats_res = requests.get(f"{API_URL}/events/{ev_id}/seats")
+            seats_res = requests.get(f"{API_URL}/events/{ev_id}/seats", timeout=REQUEST_TIMEOUT)
             
             if seats_res.status_code == 200:
                 available_seats = seats_res.json()
@@ -120,7 +121,8 @@ try:
                         book_res = requests.post(
                             f"{API_URL}/orders/book",
                             json=booking_payload,
-                            headers={"Authorization": f"Bearer {st.session_state.auth_token}"}
+                            headers={"Authorization": f"Bearer {st.session_state.auth_token}"},
+                            timeout=REQUEST_TIMEOUT,
                         )
                         
                         if book_res.status_code == 200:
@@ -153,19 +155,25 @@ try:
                             }
                             
                             # Extension: Email Simulation [cite: 203]
-                            simulate_email_sending(
-                                st.session_state.customer_email or "customer@example.com",
-                                ticket_info
-                            )
+                            try:
+                                simulate_email_sending(
+                                    st.session_state.customer_email or "customer@example.com",
+                                    ticket_info
+                                )
+                            except Exception as email_err:
+                                st.warning(f"Booking completed, but email simulation failed: {email_err}")
                             
                             # Extension: PDF Generation [cite: 202]
-                            pdf_bytes = generate_ticket_pdf(ticket_info)
-                            st.download_button(
-                                label="📥 Download PDF Ticket",
-                                data=pdf_bytes,
-                                file_name=f"Ticket_{st.session_state.event_name}.pdf",
-                                mime="application/pdf"
-                            )
+                            try:
+                                pdf_bytes = generate_ticket_pdf(ticket_info)
+                                st.download_button(
+                                    label="📥 Download PDF Ticket",
+                                    data=pdf_bytes,
+                                    file_name=f"Ticket_{st.session_state.event_name}.pdf",
+                                    mime="application/pdf"
+                                )
+                            except Exception as pdf_err:
+                                st.error(f"Booking completed, but PDF generation failed: {pdf_err}")
                         else:
                             if book_res.status_code == 409:
                                 st.error("⚠️ Too slow! Someone else just booked one of those seats. Please choose again.")
@@ -179,8 +187,10 @@ try:
             else:
                 st.error("Could not load seat map.")
 
-except Exception as e:
+except requests.exceptions.RequestException:
     st.error("Backend server is unreachable. Please ensure the FastAPI server is running.")
+except Exception as e:
+    st.error(f"Something went wrong: {e}")
 
 # --- 3. Request Refund ---
 st.divider()
@@ -192,7 +202,8 @@ with st.expander("Request a Refund"):
         ref_res = requests.post(
             f"{API_URL}/orders/{refund_order_id}/refund",
             params={"review_note": refund_review},
-            headers={"Authorization": f"Bearer {st.session_state.auth_token}"}
+            headers={"Authorization": f"Bearer {st.session_state.auth_token}"},
+            timeout=REQUEST_TIMEOUT,
         )
         if ref_res.status_code == 200:
             msg = "Refund processed for this Order ID. Seat availability has been restored."

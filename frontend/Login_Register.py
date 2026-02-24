@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 
 API_URL = "http://localhost:8000"
+REQUEST_TIMEOUT = 10
 
 
 def get_error_detail(response, default_message: str) -> str:
@@ -13,6 +14,13 @@ def get_error_detail(response, default_message: str) -> str:
         pass
     text = (response.text or "").strip()
     return text or default_message
+
+
+def backend_unreachable_message() -> str:
+    return (
+        "Backend server is unreachable at http://localhost:8000. "
+        "Start FastAPI with `uvicorn main:app --reload` from the `backend` folder."
+    )
 
 
 st.set_page_config(page_title="Login/Register", layout="wide")
@@ -56,19 +64,23 @@ else:
             reg_password = st.text_input("Password", type="password")
             reg_role_label = st.selectbox("Register As", options=list(role_options.keys()))
             if st.form_submit_button("Register"):
-                reg_res = requests.post(
-                    f"{API_URL}/auth/register",
-                    json={
-                        "name": reg_name,
-                        "email": reg_email,
-                        "password": reg_password,
-                        "role": role_options[reg_role_label],
-                    },
-                )
-                if reg_res.status_code == 200:
-                    st.success("Registration successful. Please login.")
-                else:
-                    st.error(get_error_detail(reg_res, "Registration failed"))
+                try:
+                    reg_res = requests.post(
+                        f"{API_URL}/auth/register",
+                        json={
+                            "name": reg_name,
+                            "email": reg_email,
+                            "password": reg_password,
+                            "role": role_options[reg_role_label],
+                        },
+                        timeout=REQUEST_TIMEOUT,
+                    )
+                    if reg_res.status_code == 200:
+                        st.success("Registration successful. Please login.")
+                    else:
+                        st.error(get_error_detail(reg_res, "Registration failed"))
+                except requests.exceptions.RequestException:
+                    st.error(backend_unreachable_message())
 
     with login_tab:
         st.subheader("Login")
@@ -76,20 +88,24 @@ else:
             login_email = st.text_input("Email", key="app_login_email")
             login_password = st.text_input("Password", type="password", key="app_login_password")
             if st.form_submit_button("Login"):
-                login_res = requests.post(
-                    f"{API_URL}/auth/login",
-                    json={"email": login_email, "password": login_password},
-                )
-                if login_res.status_code == 200:
-                    login_data = login_res.json()
-                    login_role = login_data.get("role")
-                    if isinstance(login_role, str) and login_role.startswith("UserRole."):
-                        login_role = login_role.split(".", 1)[1]
-                    st.session_state.auth_token = login_data["access_token"]
-                    st.session_state.customer_email = login_data["email"]
-                    st.session_state.customer_name = login_data["name"]
-                    st.session_state.user_role = login_role
-                    st.success("Login successful.")
-                    st.rerun()
-                else:
-                    st.error(get_error_detail(login_res, "Login failed"))
+                try:
+                    login_res = requests.post(
+                        f"{API_URL}/auth/login",
+                        json={"email": login_email, "password": login_password},
+                        timeout=REQUEST_TIMEOUT,
+                    )
+                    if login_res.status_code == 200:
+                        login_data = login_res.json()
+                        login_role = login_data.get("role")
+                        if isinstance(login_role, str) and login_role.startswith("UserRole."):
+                            login_role = login_role.split(".", 1)[1]
+                        st.session_state.auth_token = login_data["access_token"]
+                        st.session_state.customer_email = login_data["email"]
+                        st.session_state.customer_name = login_data["name"]
+                        st.session_state.user_role = login_role
+                        st.success("Login successful.")
+                        st.rerun()
+                    else:
+                        st.error(get_error_detail(login_res, "Login failed"))
+                except requests.exceptions.RequestException:
+                    st.error(backend_unreachable_message())

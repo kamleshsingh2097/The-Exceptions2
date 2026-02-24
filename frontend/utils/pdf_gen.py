@@ -1,6 +1,10 @@
-from fpdf import FPDF
-from datetime import datetime
-import io
+try:
+    from fpdf import FPDF
+except ModuleNotFoundError as exc:
+    raise ModuleNotFoundError(
+        "Missing dependency 'fpdf2'. Install it with `pip install fpdf2` "
+        "or `pip install -r requirementf.txt`."
+    ) from exc
 
 class TicketPDF(FPDF):
     def header(self):
@@ -57,5 +61,8 @@ def generate_ticket_pdf(ticket_data: dict):
     pdf.multi_cell(0, 10, "Present this code at the entry gate for validation. "
                           "The Entry Manager will mark this ticket as used upon entry.")
 
-    # Return the PDF as a byte stream for Streamlit download
-    return pdf.output(dest='S').encode('latin-1')
+    # Return PDF bytes for Streamlit download. fpdf2 may return bytearray/bytes.
+    raw_output = pdf.output(dest='S')
+    if isinstance(raw_output, (bytes, bytearray)):
+        return bytes(raw_output)
+    return raw_output.encode('latin-1')
