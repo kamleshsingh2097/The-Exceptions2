@@ -107,22 +107,20 @@ def apply_theme(page_title: str, subtitle: str = "") -> None:
             overflow: hidden;
         }
 
-        .stButton > button {
-            border-radius: 10px;
-            border: 1px solid #1d4ed8;
-            background: #1d4ed8;
-            color: #ffffff;
-            font-weight: 600;
-            min-height: 2.5rem;
-            padding: 0.35rem 0.9rem;
-        }
+    .stButton > button {
+        border-radius: 10px;
+        border: 1px solid #cbd5e1;
+        background: #000000;
+        color: #0f172a !important;
+        font-weight: 600;
+        min-height: 2.5rem;
+        padding: 0.35rem 0.9rem;
+    }
 
-        .stButton > button:disabled {
-            background: #ffffff !important;
-            color: #64748b !important;
-            border: 1px solid #cbd5e1 !important;
-            opacity: 1 !important;
-        }
+    .stButton > button:hover {
+        background: #f1f5f9 !important;
+        border: 1px solid #94a3b8;
+    }
 
         .ux-hero {
             background: rgba(255, 255, 255, 0.94);
