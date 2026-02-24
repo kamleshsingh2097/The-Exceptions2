@@ -1,6 +1,5 @@
 import streamlit as st
 import requests
-from utils.ui_theme import apply_theme
 
 API_URL = "http://localhost:8000"
 
@@ -17,7 +16,8 @@ def get_error_detail(response, default_message: str) -> str:
 
 
 st.set_page_config(page_title="Login/Register", layout="wide")
-apply_theme("Login/Register", "Access your role-based workspace")
+st.title("Login/Register")
+st.caption("Access your role-based workspace")
 
 if "auth_token" not in st.session_state:
     st.session_state.auth_token = None

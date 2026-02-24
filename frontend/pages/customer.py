@@ -9,7 +9,6 @@ import requests
 from datetime import datetime
 from utils.pdf_gen import generate_ticket_pdf
 from utils.email_sim import simulate_email_sending
-from utils.ui_theme import apply_theme
 
 # Configuration
 API_URL = "http://localhost:8000"
@@ -36,7 +35,8 @@ def format_event_datetime(value: str) -> str:
         return value
 
 st.set_page_config(page_title="Customer Portal", layout="wide")
-apply_theme("🎟️ Event Discovery & Booking", "Browse events, book seats, and manage refunds")
+st.title("🎟️ Event Discovery & Booking")
+st.caption("Browse events, book seats, and manage refunds")
 
 if "auth_token" not in st.session_state:
     st.session_state.auth_token = None

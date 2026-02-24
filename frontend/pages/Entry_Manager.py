@@ -4,11 +4,11 @@ import os
 import sys
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from utils.ui_theme import apply_theme
 
 API_URL = "http://localhost:8000"
 
-apply_theme("🛂 Entry Manager", "Validate tickets quickly at the gate")
+st.title("🛂 Entry Manager")
+st.caption("Validate tickets quickly at the gate")
 
 if "auth_token" not in st.session_state:
     st.session_state.auth_token = None

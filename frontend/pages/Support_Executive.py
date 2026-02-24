@@ -4,11 +4,11 @@ import os
 import sys
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from utils.ui_theme import apply_theme
 
 API_URL = "http://localhost:8000"
 
-apply_theme("🎧 Support Executive", "Review refund requests and resolve customer issues")
+st.title("🎧 Support Executive")
+st.caption("Review refund requests and resolve customer issues")
 
 if "auth_token" not in st.session_state:
     st.session_state.auth_token = None

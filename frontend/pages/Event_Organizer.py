@@ -5,11 +5,11 @@ import os
 import sys
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from utils.ui_theme import apply_theme
 
 API_URL = "http://localhost:8000"
 
-apply_theme("🛡️ Event Organizer Dashboard", "Manage venues, events, and performance")
+st.title("🛡️ Event Organizer Dashboard")
+st.caption("Manage venues, events, and performance")
 
 if "auth_token" not in st.session_state:
     st.session_state.auth_token = None
