@@ -187,6 +187,12 @@ def get_platform_analytics(db: Session = Depends(get_db)):
     """Extension: View total tickets sold and revenue[cite: 201]."""
     return crud.get_analytics(db)
 
+@app.get("/analytics/total-tickets", tags=["Support/Analytics"])
+def total_tickets(db: Session = Depends(get_db)):
+    """Return total tickets sold (confirmed orders only)."""
+    total = crud.get_total_tickets_sold(db)
+    return {"total_tickets_sold": total}
+
 
 @app.get("/support/refund-requests", tags=["Support/Analytics"])
 def get_refund_requests(db: Session = Depends(get_db)):

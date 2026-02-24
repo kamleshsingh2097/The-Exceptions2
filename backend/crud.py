@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from datetime import datetime, date as date_type, time
 from sqlalchemy.exc import IntegrityError, OperationalError
 from fastapi import HTTPException
@@ -235,7 +236,30 @@ def list_support_requests(db: Session):
 
 # --- ANALYTICS (Extension) ---
 
+def get_total_tickets_sold(db: Session):
+    """Count tickets sold for confirmed orders only."""
+    total = (
+        db.query(func.count(models.Ticket.id))
+        .join(models.Order, models.Order.id == models.Ticket.order_id)
+        .filter(models.Order.order_status == "confirmed")
+        .scalar()
+    )
+    return int(total or 0)
+
 def get_analytics(db: Session):
     """Simple analytics for the platform[cite: 201]."""
-    total_tickets = db.query(models.Ticket).count()
-    return {"total_tickets_sold": total_tickets}
+    total_tickets = (
+        db.query(func.count(models.Ticket.id))
+        .join(models.Order, models.Order.id == models.Ticket.order_id)
+        .filter(models.Order.order_status == "confirmed")
+        .scalar()
+    )
+    total_revenue = (
+        db.query(func.coalesce(func.sum(models.Order.total_amount), 0.0))
+        .filter(models.Order.order_status == "confirmed")
+        .scalar()
+    )
+    return {
+        "total_tickets_sold": int(total_tickets or 0),
+        "total_revenue": float(total_revenue or 0.0),
+    }

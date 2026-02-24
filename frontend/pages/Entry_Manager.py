@@ -1,10 +1,14 @@
 import streamlit as st
 import requests
+import os
+import sys
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from utils.ui_theme import apply_theme
 
 API_URL = "http://localhost:8000"
 
-st.title("🛂 Entry Manager")
-st.info("Check-in attendees by entering their unique ticket code.")
+apply_theme("🛂 Entry Manager", "Validate tickets quickly at the gate")
 
 if "auth_token" not in st.session_state:
     st.session_state.auth_token = None
@@ -17,6 +21,16 @@ if not st.session_state.auth_token:
 if st.session_state.get("user_role") != "entry_manager":
     st.error("Access denied. This page is only for Entry Manager role.")
     st.stop()
+
+try:
+    analytics_res = requests.get(f"{API_URL}/analytics/total-tickets")
+    if analytics_res.status_code == 200:
+        analytics_data = analytics_res.json()
+        st.metric("🎟 Total Tickets Sold", analytics_data.get("total_tickets_sold", 0))
+    else:
+        st.warning("Could not load total tickets sold.")
+except requests.exceptions.RequestException:
+    st.warning("Analytics service is unavailable.")
 
 ticket_code = st.text_input("Enter/Scan Ticket Code")
 

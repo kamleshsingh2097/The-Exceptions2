@@ -1,10 +1,15 @@
 import streamlit as st
 import requests
 from datetime import datetime
+import os
+import sys
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from utils.ui_theme import apply_theme
 
 API_URL = "http://localhost:8000"
 
-st.title("🛡️ Event Organizer Dashboard")
+apply_theme("🛡️ Event Organizer Dashboard", "Manage venues, events, and performance")
 
 if "auth_token" not in st.session_state:
     st.session_state.auth_token = None
@@ -78,7 +83,7 @@ with tab2:
 
     col1, col2 = st.columns(2)
     col1.metric("Total Tickets Sold", stats.get("total_tickets_sold", 0))  # [cite: 201]
-    col2.metric("Gross Revenue", f"${stats.get('total_revenue', 0)}")
+    col2.metric("Gross Revenue", f"${stats.get('total_revenue', 0):.2f}")
 
     # debug: show upcoming events available right now
     st.markdown("---")

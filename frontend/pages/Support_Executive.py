@@ -1,9 +1,14 @@
 import streamlit as st
 import requests
+import os
+import sys
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from utils.ui_theme import apply_theme
 
 API_URL = "http://localhost:8000"
 
-st.title("🎧 Support Executive")
+apply_theme("🎧 Support Executive", "Review refund requests and resolve customer issues")
 
 if "auth_token" not in st.session_state:
     st.session_state.auth_token = None
