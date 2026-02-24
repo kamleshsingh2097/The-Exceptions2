@@ -1,0 +1,96 @@
+from pydantic import BaseModel, EmailStr
+from typing import List, Optional
+from datetime import datetime
+import models
+
+#Venues
+class VenueCreate(BaseModel):
+    name: str
+    city: str
+    total_capacity: int
+    address: str
+
+class VenueResponse(BaseModel):
+    id: int
+    name: str
+    city: str
+    total_capacity: int
+    address: str
+
+    class Config:
+        from_attributes = True
+
+#Events
+class EventCreate(BaseModel):
+    venue_id: int
+    name: str
+    category: str
+    event_date: datetime
+    ticket_price: float
+    max_tickets_per_user: int
+
+class EventStatusUpdate(BaseModel):
+    status: models.EventStatus
+
+class EventResponse(BaseModel):
+    id: int
+    name: str
+    category: str
+    event_date: datetime
+    ticket_price: float
+    max_tickets_per_user: int
+    status: models.EventStatus
+    venue_id: int
+
+    class Config:
+        from_attributes = True
+
+#Seats
+class SeatResponse(BaseModel):
+    id: int
+    seat_number: str
+    status: models.SeatStatus
+    venue_id: int
+    event_id: int
+
+    class Config:
+        from_attributes = True
+
+#User
+class UserCreate(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+
+class UserResponse(BaseModel):
+    id: int
+    name: str
+    email: EmailStr
+    role: models.UserRole
+
+    class Config:
+        from_attributes = True
+
+#Order
+class BookingRequest(BaseModel):
+    user_id: int
+    event_id: int
+    seat_ids: List[int]
+    payment_mode: str
+
+class OrderResponse(BaseModel):
+    id: int
+    total_amount: float
+    payment_mode: str
+    order_status: models.OrderStatus
+    booking_time: datetime
+    user_id: int
+    event_id: int
+
+    class Config:
+        from_attributes = True
+
+#Analytics
+class AnalyticsResponse(BaseModel):
+    total_tickets_sold: int
+    total_revenue: float
